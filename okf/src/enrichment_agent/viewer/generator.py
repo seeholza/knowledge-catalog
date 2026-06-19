@@ -15,7 +15,32 @@ _TYPE_PALETTE = {
     "BigQuery Table": "#3b82f6",
     "Reference": "#10b981",
 }
+# matplotlib's "tab10" qualitative palette — perceptually distinct categorical
+# colours, inlined so we don't take a matplotlib dependency just to colour nodes.
+# Used for any type not in _TYPE_PALETTE so every type gets a distinct colour.
+_CATEGORICAL_PALETTE = (
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+)
 _DEFAULT_NODE_COLOR = "#94a3b8"
+
+
+def _assign_type_colors(types: list[str]) -> dict[str, str]:
+    """Map each (already-sorted) type to a stable colour.
+
+    Known types keep their preferred palette colour; the rest cycle through the
+    categorical palette in sorted order, so a given bundle always colours the
+    same way regardless of file-walk order.
+    """
+    colors: dict[str, str] = {}
+    fallback = 0
+    for t in types:
+        if t in _TYPE_PALETTE:
+            colors[t] = _TYPE_PALETTE[t]
+        else:
+            colors[t] = _CATEGORICAL_PALETTE[fallback % len(_CATEGORICAL_PALETTE)]
+            fallback += 1
+    return colors
 
 
 @dataclass
@@ -29,8 +54,8 @@ class Concept:
     body: str
     links_to: list[str] = field(default_factory=list)
 
-    def to_node(self) -> dict[str, Any]:
-        color = _TYPE_PALETTE.get(self.type, _DEFAULT_NODE_COLOR)
+    def to_node(self, type_colors: dict[str, str]) -> dict[str, Any]:
+        color = type_colors.get(self.type, _DEFAULT_NODE_COLOR)
         return {
             "data": {
                 "id": self.id,
@@ -101,7 +126,9 @@ def _walk_concepts(bundle_root: Path) -> list[Concept]:
 
 def _build_graph(concepts: list[Concept]) -> dict[str, Any]:
     ids = {c.id for c in concepts}
-    nodes = [c.to_node() for c in concepts]
+    types = sorted({c.type for c in concepts})
+    type_colors = _assign_type_colors(types)
+    nodes = [c.to_node(type_colors) for c in concepts]
     edges: list[dict[str, Any]] = []
     seen_edges: set[tuple[str, str]] = set()
     for c in concepts:
@@ -120,13 +147,12 @@ def _build_graph(concepts: list[Concept]) -> dict[str, Any]:
                 }
             })
     bodies = {c.id: c.body for c in concepts}
-    types = sorted({c.type for c in concepts})
     return {
         "nodes": nodes,
         "edges": edges,
         "bodies": bodies,
         "types": types,
-        "palette": _TYPE_PALETTE,
+        "palette": type_colors,
     }
 
 
